@@ -14,7 +14,7 @@ A Domoticz plugin to work with Gammu and Sim808
 - The heartbeat will check received SMS and Network connectivity (may be conflicting with RaspiSMS for SMS webhooks)
 - Notification based on priority. Prioriy High will be sent by SMS to the 1st user in list. Priority Emergency will be sent to everyone. 
 
-<img src="images/ExampleConfigPlugin.png" data-origin="images/cExampleConfigPlugin.png" alt="DomoticzPlugin" width="800">
+<img src="images/ExampleConfigPlugin.png" data-origin="images/ExampleConfigPlugin.png" alt="DomoticzPlugin" width="400">
 <img src="images/Notification_system.png" data-origin="images/Notification_system.png" alt="SMS_Notifications" width="800">
 <img src="images/Example SMS.png" data-origin="images/Example SMS.png" alt="SMS_Command" width="800">
 
@@ -44,7 +44,7 @@ See [Using_Python_plugins](https://www.domoticz.com/wiki/Using_Python_plugins)
 6. Click "Add"
 
 The created devices: 
-<img src="images/Example SMS.png" data-origin="images/Example SMS.png" alt="SMS_Command" width="800">
+<img src="images/Created_devices.png" data-origin="images/Created_devices.png" alt="SMS_Command" width="800">
 
 ### TODO :
 - Use the Domoticz Transport Object instead of pyserial 
