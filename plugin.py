@@ -353,7 +353,7 @@ class BasePlugin:
                                         key_idx=str(n_idx.split(':')[1])
                                         if key in sms_cmd:
                                             #Check if there is a command, or it is just a query for state
-                                            if len(sms_cmd.split(key)) > 1:#['cmd', 'on']--> len()=2 or ['cmd']
+                                            if len(sms_cmd.split(key)) > 1 and sms_cmd.split(key)[1] != '':#['cmd', 'on']--> len()=2 or ['cmd','']
                                                 #Associate command with Domoticz Command
                                                 d_command=sms_cmd.split(key)[1].split('\n')[0]
                                                 device_command=''
@@ -381,7 +381,7 @@ class BasePlugin:
                                                     #parse the answered JSON
                                                     http_answ=json.loads(r.text)["result"][0]
                                                     #Print answer
-                                                    answer += 'Device '+http_answ['Name']+'(IDX:'+http_answ['idx']+') : '+http_answ['Data']+', was updated on '+http_answ['LastUpdate']
+                                                    answer += 'Device '+http_answ['Name']+' (IDX:'+http_answ['idx']+') is '+http_answ['Data']+' (last updated on '+http_answ['LastUpdate']+')'
                                                 else:
                                                     answer += 'Problem with command ! code '+str(r.status_code)+': '+str(r.text)
 
