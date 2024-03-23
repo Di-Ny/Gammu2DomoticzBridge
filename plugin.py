@@ -12,6 +12,7 @@
 #   Concept : 
 #       - Reconfigure the Gammu config file /home/pi/.gammurc with (Baudrate, Default number)
 #       - Declare authorized phone numbers for SMS Control
+#       - Create variables with GSM infos: IMEI, Model, Firmware, etc... 
 #       - Makes use of a send_sms.sh, and call.sh scripts to prevent gammu process collision 
 #       - 
 #       - The heartbeat will check received SMS and Network connectivity (may be conflicting with RaspiSMS for SMS webhooks)
@@ -29,13 +30,13 @@
 # 
 # License : CC BY-NC-SA
 """
-<plugin key="gammudz" name="Gammu-Domoticz Bridge" author="DiNy" version="0.0.1" wikilink="" externallink="">
+<plugin key="gammudz" name="Gammu-Domoticz Bridge" author="DiNy" version="0.0.2" wikilink="" externallink="">
     <description>
         <b>Gammu Domoticz Bridge</b><br/><br/>
         <b>Comptibility :</b>
         <ul style="list-style-type:square">
         <li>Goal: 0) Be independant of any internet connection (in case of failure). 1) Provide an independant notification system  2) Send control commands to the Domoticz server</li>
-        <li>Domoticz V2020.2</li>
+        <li>Domoticz V2024.4</li>
         <li>GSM Module : All supported by Gammu, please see https://fr.wammu.eu/gammu/ Tested on Sim800 series, Sim900 series</li>
         <li>GSM module is linked to a USB port to be recognized by both Gammu and Domoticz</li>
         <li>Commands can be sent to the server by <b>authorized phone numbers</b>, with a <b>password</b>, and associated to <b>IDX</b>'s. The following commands are available : "On", "Off", "Toggle", or an integer [0-100] for DimmingLevel (experimental)</li>
@@ -111,7 +112,7 @@ hasConnected = False
 #variable : unitID 
 uid_GSMinfo=1
 uid_SMS=2
-uid_netstat=3
+#uid_netstat=3
 uid_jamming=4
 #List Switch On state 
 list_switch_On=['allumer','on','light','lightup','1','power']
@@ -120,7 +121,6 @@ list_switch_Toggle=['toggle','togle','change','changer','basculer','invert','swi
 
 class BasePlugin:
     enabled = False
-
     def onStart(self):
         #Get the variables
         self.debugging = Parameters["Mode6"].strip()
@@ -144,14 +144,14 @@ class BasePlugin:
         #ReConfigure the config.json 
         success = self.reWriteConfigFile()
         if not success:
-            Domoticz.Log("Reconfigure config.json --> Failed")
+            Domoticz.Log("Reconfigure .gammurc --> Failed")
             return 0
         #Create Variables and Devices
         if len(Devices) == 0:
             #SMS LOG Variable 
             Domoticz.Device(Name="GSM Info", TypeName="Text", Unit=uid_GSMinfo, DeviceID="gsm_info").Create()
             Domoticz.Device(Name="Received SMS", TypeName="Text", Unit=uid_SMS, DeviceID="gsm_receivedsms").Create()
-            Domoticz.Device(Name="GSM Network Status", TypeName="Text", Unit=uid_netstat, DeviceID="gsm_attached").Create()
+            #Domoticz.Device(Name="GSM Network Status", TypeName="Text", Unit=uid_netstat, DeviceID="gsm_attached").Create()
             Domoticz.Device(Name="GSM Jamming", TypeName="Alert", Unit=uid_jamming, DeviceID="gsm_jamming").Create()
         #PinCode if set 
         if self.pin != "":
@@ -161,6 +161,16 @@ class BasePlugin:
             elif "Security error":
                 Domoticz.Log("Error PIN Code ! Please check in a phone (locked after 3 attempts")
                 return
+        #Get GSM Infos and put them into variables 
+        gsm_info = os.popen('/usr/bin/gammu --config /home/pi/.gammurc identify').read()
+        Domoticz.Debug("GSM Module information --> update into variables")
+        for info in gsm_info.split('\n'):
+            if " : " in info:
+                var_name = "GSM_"+info.split(' : ')[0].strip()
+                var_val = info.split(' : ')[1].strip()
+                r = requests.get('http://127.0.0.1:8080/json.htm?type=command&param=adduservariable&vname='+var_name+'&vtype=2&vvalue='+var_val)
+                r = requests.get('http://127.0.0.1:8080/json.htm?type=command&param=updateuservariable&vname='+var_name+'&vtype=2&vvalue='+var_val)
+                
         time.sleep(0.5)  
         # global SerialConn
         global ser
@@ -172,11 +182,21 @@ class BasePlugin:
             # SerialConn.Connect()
             # SerialConn.Send(b'AT+SJDR=1,0,255\r')
         except Exception as e:
-            Domoticz.Debug( "error open serial port: " + str(e))
+            Domoticz.Debug( "Can't open serial port: " + str(e))
+        #test AT
+        retry = 10
+        while retry>0:
+            ser.write(b'AT\r')
+            if 'OK' in str(ser.readlines()):
+                break
+            retry-=1
+        if retry == 0:
+            os.system('sudo python /home/pi/domoticz/scripts/python/i2c_actions.py 2')
+
         #Set the jamming detection option
         ser.write(b'AT+SJDR=1,0,255\r')
         ser.close()
-
+        
         #Check that everything is running fine
         network_info = os.popen('/usr/bin/gammu --config /home/pi/.gammurc networkinfo').read()
         if "Warning" in network_info or "Error" in network_info :
@@ -187,14 +207,13 @@ class BasePlugin:
             os.system("sudo rm "+self.backupfile)
         else:
             Domoticz.Log("Trying to revert the config file...")
-            copy2(self.backupfile,self.path+"/config.json")
+            copy2(self.backupfile,"/home/pi/.gammurc")
             success = self.startProcess()
         #Update the ID
         if success:
             #update the network info
             Devices[uid_GSMinfo].Update(sValue=str(network_info), nValue=0)
             # Devices["gsm_info"].Update(sValue=str(network_info), nValue=0)
-
 
     def reWriteConfigFile(self):
         #backup file 
@@ -310,21 +329,25 @@ class BasePlugin:
                 a=ser.readline().strip().decode('ascii')
             ser.close()
             #Network INFO [WIP] --> Add network status clearly
+            Domoticz.Debug('Network Info')
             network_info = os.popen('/usr/bin/gammu --config /home/pi/.gammurc networkinfo').read().strip()
+            Domoticz.Debug(str(network_info))
             if "Warning" in network_info or "Error" in network_info :
+                Domoticz.Debug('--> Error with Gammu')
                 Devices[uid_GSMinfo].Update(sValue="Error with Gammu", nValue=0)
             else:
                 Devices[uid_GSMinfo].Update(sValue=str(network_info), nValue=0)
-                Devices[uid_netstat].Update(sValue=str(network_info.split('GPRS                 : ')[1].split('\n')[0]), nValue=0)
-
-
+                #Devices[uid_netstat].Update(sValue=str(network_info.split('GPRS                 : ')[1].split('\n')[0]), nValue=0)
+            
             #Get SMS
             sms = os.popen('/usr/bin/gammu --config /home/pi/.gammurc getallsms').read().strip()
             message_number = 0
             if '0 SMS parts in 0 SMS sequences' in sms:
                 Domoticz.Debug('Pas de message reçu')
+            elif 'Error opening device.' in sms:
+                Domoticz.Log('GSM device is busy --> retry next heartbeat')
             else:
-                Domoticz.Debug('Message reçu')
+                Domoticz.Log('Message reçu')
                 new_message=True
                 while new_message:
                     if 'Location' in sms:
@@ -343,6 +366,14 @@ class BasePlugin:
                             sms_condensed = unidecode(str(sms_cmd_raw).strip().replace(" ", "").lower())
                             if self.passkey in sms_condensed:
                                 Domoticz.Log('Proceed Command ')
+                                if 'restart' in sms_condensed:
+                                    Domoticz.Log("System will reboot in 5 seconds")
+                                    #SEND SMS .py
+                                    #TODO
+                                    os.system('sudo /home/pi/domoticz/scripts/bash/send_sms.sh '+sms_sender+' "Reboot now"')
+                                    #
+                                    time.sleep(1)
+                                    r = requests.get('http://127.0.0.1:8080/json.htm?type=command&param=system_reboot')
                                 answer = ''
                                 sms_cmd_list = sms_condensed.split(str(self.passkey))[1].split('\n')
                                 for sms_cmd in sms_cmd_list:
@@ -385,27 +416,23 @@ class BasePlugin:
                                                 else:
                                                     answer += 'Problem with command ! code '+str(r.status_code)+': '+str(r.text)
 
-                                    if 'restart' in sms_cmd:
-                                        Domoticz.Log("System will reboot in 5 seconds")
-                                        #SEND SMS .py
-                                        #TODO
-                                        os.system('sudo /home/pi/domoticz/scripts/bash/send_sms.sh '+sms_sender+' "Reboot now"')
-                                        #
-                                        time.sleep(1)
-                                        r = requests.get('http://127.0.0.1:8080/json.htm?type=command&param=system_reboot')
-                                Domoticz.Log(answer)
-                                Domoticz.Debug('sudo nohup /home/pi/domoticz/scripts/bash/send_sms.sh '+sms_sender+' "'+answer+'" &')
-                                #SMS.py --> Answer 
-                                os.system('sudo nohup /home/pi/domoticz/scripts/bash/send_sms.sh '+sms_sender+' "'+answer+'" &')
 
+                                Domoticz.Log(answer)
+                                #SMS.py --> Answer 
+                                #Domoticz.Debug('sudo nohup /home/pi/domoticz/scripts/bash/send_sms.sh '+sms_sender+' "'+answer+'" &')
+                                #os.system('sudo nohup /home/pi/domoticz/scripts/bash/send_sms.sh '+sms_sender+' "'+answer+'" &')
+                                Domoticz.Debug('/usr/bin/gammu --config /home/pi/.gammurc sendsms TEXT '+sms_sender+' -text "'+answer+'"')
+                                os.system('/usr/bin/gammu --config /home/pi/.gammurc sendsms TEXT '+sms_sender+' -text "'+answer+'"')
+                                time.sleep(1)
                             else:
-                                Domoticz.Log('Error: Command received, but phone number not registered. Authorized phones are :')
-                                for phs in self.auth_phones.split(','):
-                                    Domoticz.Log(str(phs))
+                                Domoticz.Log('Error: Code incorrect, check in hardware definition')
+                        else:
+                            Domoticz.Log('Error: Command received, but phone number not registered. Authorized phones are :')
+                            for phs in self.auth_phones.split(','):
+                                Domoticz.Log(str(phs))
 
                         #End of first SMS. Implode and start again
                         sms = "\n".join(sms_parts[10:])
-
                     else:
                         new_message = False
                 Domoticz.Log(str(message_number)+' messages processed')
